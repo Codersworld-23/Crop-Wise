@@ -557,14 +557,13 @@ elif selected_tab == "Crop Market vs Geostatistics":
         
         col3, col4 = st.columns(2)
         with col3:
-            today = datetime(2025, 4, 20)  # Current date
-            min_from_date = datetime(2025, 4, 13)  # 7 days prior
-            max_to_date = datetime(2025, 4, 19)  # Yesterday
-            from_date = st.date_input("From Date", min_value=min_from_date, max_value=max_to_date, 
-                                    value=min_from_date)
+            today = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)  # Current date
+            min_from_date = today - timedelta(days=30)  # Allow 30 days back
+            from_date = st.date_input("From Date", min_value=min_from_date, max_value=today, 
+                                    value=today - timedelta(days=7))  # Default to 7 days ago
         with col4:
-            to_date = st.date_input("To Date", min_value=min_from_date, max_value=max_to_date, 
-                                value=max_to_date)
+            to_date = st.date_input("To Date", min_value=min_from_date, max_value=today, 
+                                    value=today)  # Default to today
         
         # Fetch commodities
         commodities = fetch_commodity_list(state if state != "All" else "", 
