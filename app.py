@@ -157,6 +157,8 @@ st.subheader("📊 Analytics Dashboard")
 
 selected_tab = st.sidebar.radio("📂 Choose a section", ["Live Disease Risk Map", "Weather Analytics", "Crop Market vs Geostatistics"])
 
+#######################################################################################################################################
+
 if selected_tab == "Live Disease Risk Map":
     st.markdown("### 🌍 Live Disease Risk Map")
 
@@ -308,7 +310,7 @@ if selected_tab == "Live Disease Risk Map":
     else:
         st.info("👆 Click the button above to generate the disease risk map.")
 
-##########################################################################################################3333
+###########################################################################################################################################
 
 elif selected_tab == "Weather Analytics":
     st.markdown("### 🌤️ Weather Trends & Insights")
@@ -411,6 +413,7 @@ elif selected_tab == "Weather Analytics":
     except Exception as e:
         st.error(f"Weather data error: {str(e)}")
 
+###########################################################################################################################################
 
 # ===== CROP MARKET ANALYTICS =====
 elif selected_tab == "Crop Market vs Geostatistics":
@@ -533,7 +536,7 @@ elif selected_tab == "Crop Market vs Geostatistics":
             return apmc
         # Remove common suffixes (case-insensitive) and normalize
         cleaned = apmc.strip()
-        cleaned = cleaned.replace(" APMC", "").replace(" Market", "").replace(" Agri Market", "")
+        cleaned = cleaned.replace(" APMC", "").replace(" Market", "").replace(" Agri Market", "").replace(" GRAIN", "").replace(" F AND V", "")
         # Convert to title case to match IndianCities.csv
         return cleaned.title().strip()
 
@@ -557,14 +560,13 @@ elif selected_tab == "Crop Market vs Geostatistics":
         
         col3, col4 = st.columns(2)
         with col3:
-            today = datetime(2025, 4, 20)  # Current date
-            min_from_date = datetime(2025, 4, 13)  # 7 days prior
-            max_to_date = datetime(2025, 4, 19)  # Yesterday
-            from_date = st.date_input("From Date", min_value=min_from_date, max_value=max_to_date, 
-                                    value=min_from_date)
+            today = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)  # Current date
+            min_from_date = today - timedelta(days=30)  # Allow 30 days back
+            from_date = st.date_input("From Date", min_value=min_from_date, max_value=today, 
+                                    value=today - timedelta(days=7))  # Default to 7 days ago
         with col4:
-            to_date = st.date_input("To Date", min_value=min_from_date, max_value=max_to_date, 
-                                value=max_to_date)
+            to_date = st.date_input("To Date", min_value=min_from_date, max_value=today, 
+                                    value=today)  # Default to today
         
         # Fetch commodities
         commodities = fetch_commodity_list(state if state != "All" else "", 
@@ -607,7 +609,7 @@ elif selected_tab == "Crop Market vs Geostatistics":
             
             # Display raw data
             st.subheader("Trade Data")
-            st.dataframe(trade_df[["state", "apmc", "cleaned_apmc", "commodity", "min_price", "modal_price", 
+            st.dataframe(trade_df[["state", "apmc", "commodity", "min_price", "modal_price", 
                                 "max_price", "commodity_arrivals", "commodity_traded", "Commodity_Uom", "created_at"]])
             
             # Visualizations
@@ -620,13 +622,13 @@ elif selected_tab == "Crop Market vs Geostatistics":
                             color="commodity", title="Price Trends Over Time",
                             labels={"created_at": "Date", "value": "Price (Rs.)", "variable": "Price Type"})
                 st.plotly_chart(fig)
-            
-            # Bar Graph: Modal prices by APMC
-            if "apmc" in trade_df.columns and "modal_price" in trade_df.columns:
-                fig = px.bar(trade_df, x="apmc", y="modal_price", color="commodity", 
-                            title="Modal Prices by APMC", labels={"modal_price": "Modal Price (Rs.)", "apmc": "APMC"})
-                st.plotly_chart(fig)
-            
+                
+            # Area Chart: Modal price over time
+            fig = px.area(trade_df, x="created_at", y="modal_price",
+              title=f"Modal Price Area Chart for {commodity}",
+              labels={"created_at": "Date", "modal_price": "Modal Price (Rs.)"})
+            st.plotly_chart(fig)
+
             # Heatmap: Correlation between numerical variables
             st.subheader("Correlation Heatmap")
             numeric_cols = ["min_price", "modal_price", "max_price", "commodity_arrivals", "commodity_traded"]
@@ -648,6 +650,7 @@ elif selected_tab == "Crop Market vs Geostatistics":
                                 title="Modal Price Distribution by Date",
                                 labels={"modal_price": "Modal Price (Rs.)", "created_at": "Date"})
                 st.plotly_chart(fig)
+
             
             # 3D Scatter Plot: Modal price, arrivals, and traded
             if all(col in trade_df.columns for col in ["modal_price", "commodity_arrivals", "commodity_traded", "commodity"]):
@@ -658,88 +661,88 @@ elif selected_tab == "Crop Market vs Geostatistics":
                                             "modal_price": "Modal Price (Rs.)"})
                 st.plotly_chart(fig)
             
-            # Bubble Map: Price visualization
-            st.subheader("Price Bubble Map")
-            map_df = trade_df.merge(cities_df, left_on="cleaned_apmc", right_on="City", how="inner")
-            if not map_df.empty:
-                m = folium.Map(location=[20.5937, 78.9629], zoom_start=5)  # Center of India
-                for _, row in map_df.iterrows():
-                    folium.CircleMarker(
-                        location=[row["Latitude"], row["Longitude"]],
-                        radius=row["modal_price"] / 1000,  # Scale radius by price
-                        popup=f"{row['apmc']}: {number_format(row['modal_price'])} Rs.",
-                        color="blue",
-                        fill=True,
-                        fill_color="blue"
-                    ).add_to(m)
-                st_folium(m, width=700, height=500)
-            else:
-                st.warning("No matching cities found for bubble map. Ensure cleaned APMC names exist in IndianCities.csv.")
             
-            # Geospatial Heatmap: Price intensity
-            st.subheader("Geospatial Heatmap: Price Intensity")
-            if not map_df.empty:
-                m = folium.Map(location=[20.5937, 78.9629], zoom_start=5)
-                heat_data = [[row["Latitude"], row["Longitude"], row["modal_price"]] for _, row in map_df.iterrows()]
-                HeatMap(heat_data, radius=15).add_to(m)
-                st_folium(m, width=700, height=500)
-            else:
-                st.warning("No matching cities found for geospatial heatmap. Ensure cleaned APMC names exist in IndianCities.csv.")
-            
+            # Calendar Heatmap: Modal Prices
+            import calplot
+            st.subheader("Calendar Heatmap: Modal Prices")
+            trade_df["created_at"] = pd.to_datetime(trade_df["created_at"])
+            daily_avg = trade_df.groupby(trade_df["created_at"].dt.date)["modal_price"].mean()
+            daily_avg.index = pd.to_datetime(daily_avg.index)
+            fig, ax = calplot.calplot(daily_avg)
+            st.pyplot(fig)
+
+
             # Parallel Coordinates Plot: Multivariate analysis
+            st.subheader("Parallel Coordinates Plot (Multivariate Analysis)")
             if all(col in trade_df.columns for col in ["min_price", "modal_price", "max_price", "commodity_arrivals", "commodity_traded"]):
-                st.subheader("Parallel Coordinates Plot (Multivariate Analysis)")
                 plot_df = trade_df[["min_price", "modal_price", "max_price", "commodity_arrivals", "commodity_traded", "commodity"]].dropna()
-                for col in numeric_cols:
-                    plot_df[col] = (plot_df[col] - plot_df[col].min()) / (plot_df[col].max() - plot_df[col].min())
-                fig = px.parallel_coordinates(plot_df, color="modal_price", 
-                                            labels={"min_price": "Min Price", "modal_price": "Modal Price", 
-                                                    "max_price": "Max Price", "commodity_arrivals": "Arrivals", 
-                                                    "commodity_traded": "Traded"},
-                                            title="Parallel Coordinates: Trade Metrics")
-                st.plotly_chart(fig)
-            
+                if len(plot_df) > 1:
+                    for col in numeric_cols:
+                        plot_df[col] = (plot_df[col] - plot_df[col].min()) / (plot_df[col].max() - plot_df[col].min())
+                    fig = px.parallel_coordinates(plot_df, color="modal_price",
+                                                labels={"min_price": "Min Price", "modal_price": "Modal Price",
+                                                        "max_price": "Max Price", "commodity_arrivals": "Arrivals",
+                                                        "commodity_traded": "Traded"},
+                                                title="Parallel Coordinates: Trade Metrics")
+                    st.plotly_chart(fig)
+                else:
+                    st.warning("Not enough data to plot parallel coordinates. Requires at least 2 complete rows.")
+
+
             # Statistical Analysis
             st.subheader("Statistical Analysis")
             
-            # Simple Linear Regression: Commodity Arrivals vs. Modal Price
+            # Linear Regression
             if "commodity_arrivals" in trade_df.columns and "modal_price" in trade_df.columns:
                 X = trade_df["commodity_arrivals"].dropna()
                 y = trade_df["modal_price"].dropna()
                 if len(X) > 1 and len(y) > 1:
-                    X = sm.add_constant(X)  # Add intercept
+                    X = sm.add_constant(X)
                     model = sm.OLS(y, X).fit()
                     st.write("### Linear Regression: Commodity Arrivals vs. Modal Price")
                     st.write(model.summary())
-                    
-                    # Plot regression
+
                     fig, ax = plt.subplots()
                     sns.regplot(x="commodity_arrivals", y="modal_price", data=trade_df, ax=ax)
                     ax.set_title("Regression: Arrivals vs. Modal Price")
                     ax.set_xlabel("Commodity Arrivals")
                     ax.set_ylabel("Modal Price (Rs.)")
                     st.pyplot(fig)
-            
-            # T-Test: Compare modal prices between time periods
+                else:
+                    st.warning("Insufficient data for linear regression. At least 2 observations are required.")
+
+                    
+            # T-Test: Between Time Periods
             if "created_at" in trade_df.columns and "modal_price" in trade_df.columns:
                 trade_df["created_at"] = pd.to_datetime(trade_df["created_at"])
-                mid_point = pd.to_datetime("2025-04-15")  # Split at mid-week
-                group1 = trade_df[trade_df["created_at"] <= mid_point]["modal_price"].dropna()
-                group2 = trade_df[trade_df["created_at"] > mid_point]["modal_price"].dropna()
-                if len(group1) > 1 and len(group2) > 1:
-                    t_stat, p_value = stats.ttest_ind(group1, group2)
-                    st.write("### T-Test: Modal Prices Between Time Periods")
-                    st.write("Comparing April 13–15 vs. April 16–19")
-                    st.write(f"T-Statistic: {t_stat:.4f}, P-Value: {p_value:.4f}")
-                    if p_value < 0.05:
-                        st.write("Significant difference in modal prices between periods (p < 0.05).")
+                unique_dates = sorted(trade_df["created_at"].dt.date.unique())
+                
+                if len(unique_dates) >= 4:
+                    # Midpoint selection for splitting
+                    default_split_date = unique_dates[len(unique_dates) // 2]
+                    split_date = st.date_input("Select date to split periods for T-Test", value=default_split_date)
+
+                    group1 = trade_df[trade_df["created_at"].dt.date <= split_date]["modal_price"].dropna()
+                    group2 = trade_df[trade_df["created_at"].dt.date > split_date]["modal_price"].dropna()
+
+                    st.write("### T-Test: Modal Prices Between Selected Time Periods")
+                    st.write(f"Comparing dates up to and including **{split_date}** vs. after **{split_date}**")
+
+                    if len(group1) > 1 and len(group2) > 1:
+                        t_stat, p_value = stats.ttest_ind(group1, group2)
+                        st.write(f"T-Statistic: `{t_stat:.4f}`, P-Value: `{p_value:.4f}`")
+                        if p_value < 0.05:
+                            st.success("✅ Significant difference in modal prices between the two time periods (p < 0.05).")
+                        else:
+                            st.info("ℹ️ No significant difference in modal prices between the two time periods (p ≥ 0.05).")
                     else:
-                        st.write("No significant difference in modal prices between periods (p >= 0.05).")
+                        st.warning("⚠️ Not enough data in one or both groups to perform T-Test (at least 2 entries each required).")
                 else:
-                    st.write("### T-Test: Not enough data for time period comparison.")
-                    
-            
-            # Confidence Interval: Modal price by commodity or APMC
+                    st.warning("⚠️ Not enough distinct dates to split into two periods for T-Test.")
+
+
+
+            # Confidence Intervals
             if "modal_price" in trade_df.columns:
                 st.write("### Confidence Intervals: Modal Price")
                 if commodity == "All" and "commodity" in trade_df.columns:
@@ -748,17 +751,23 @@ elif selected_tab == "Crop Market vs Geostatistics":
                         if len(prices) > 1:
                             mean, ci_lower, ci_upper = calculate_confidence_interval(prices)
                             st.write(f"{comm}: Mean = {mean:.2f} Rs., 95% CI = [{ci_lower:.2f}, {ci_upper:.2f}] Rs.")
+                        elif len(prices) == 1:
+                            st.info(f"{comm}: Only one price value available. Cannot compute confidence interval.")
                 elif city == "All" and "apmc" in trade_df.columns:
                     for apmc in trade_df["apmc"].unique():
                         prices = trade_df[trade_df["apmc"] == apmc]["modal_price"].dropna()
                         if len(prices) > 1:
                             mean, ci_lower, ci_upper = calculate_confidence_interval(prices)
                             st.write(f"{apmc}: Mean = {mean:.2f} Rs., 95% CI = [{ci_lower:.2f}, {ci_upper:.2f}] Rs.")
+                        elif len(prices) == 1:
+                            st.info(f"{apmc}: Only one price value available. Cannot compute confidence interval.")
                 else:
                     prices = trade_df["modal_price"].dropna()
                     if len(prices) > 1:
                         mean, ci_lower, ci_upper = calculate_confidence_interval(prices)
                         st.write(f"Selected Data: Mean = {mean:.2f} Rs., 95% CI = [{ci_lower:.2f}, {ci_upper:.2f}] Rs.")
+                    elif len(prices) == 1:
+                        st.info("Only one modal price value available. Confidence interval cannot be calculated.")
 
     crop_market_geostatistics_tab()
 
