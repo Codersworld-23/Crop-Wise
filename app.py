@@ -395,6 +395,7 @@ elif selected_tab == "Weather Analytics":
                                                  labels={"temp_avg": "Average Temp (°C)", "precipitation": "Rainfall (mm)"})
                 st.plotly_chart(fig_heatmap, use_container_width=True)
 
+
                 # Summary Metrics
                 st.subheader("📊 Summary Insights")
                 cols = st.columns(3)
