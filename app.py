@@ -1,6 +1,5 @@
 import altair as alt
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import requests
 import streamlit as st
 import numpy as np
@@ -8,62 +7,155 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import scipy.stats as stats
+import plotly.express as px
 from sklearn.linear_model import LinearRegression
 from scripts.weather import get_weather
 from scripts.geolocation import get_coordinates
-import plotly.express as px
-import google.generativeai as genai
 from dotenv import load_dotenv
+from PIL import Image
+import torch
+import torchvision.transforms as transforms
+from torchvision import models
+import joblib
 
-load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 # ----- App Title -----
 st.set_page_config(page_title="CropWise", layout="wide")
 st.title("🌾 Welcome To CropWise")
+
+load_dotenv()
+api_key = os.getenv("GROQ_API_KEY")
+
 
 # ----- Image Upload Section -----
 uploaded_image = st.file_uploader("📷 Upload an image of the diseased crop", type=["jpg", "png"])
 
 if uploaded_image:
     st.image(uploaded_image, caption="Uploaded Image", use_container_width=True)
+    
+    import torch
+    import torchvision.transforms as transforms
+    from PIL import Image
+    import joblib
+    import os
+    from torchvision import models
+    import torch.nn as nn
 
-    # --- ML Output Placeholder and Fallback ---
-    predicted_crop = st.session_state.get("predicted_crop", "wheat")
-    predicted_disease = st.session_state.get("predicted_disease", "black rust")
+    # Paths
+    MODEL_PATH = "models/crop_disease_resnet18.pth"
+    CROP_ENCODER_PATH = "models/crop_label_encoder.pkl"
+    DISEASE_ENCODER_PATH = "models/disease_label_encoder.pkl"
 
+    # Set device and verify GPU
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    if device.type == "cuda":
+        print(f"GPU Name: {torch.cuda.get_device_name(0)}")
+        print(f"CUDA Version: {torch.version.cuda}")
+    else:
+        print("Warning: GPU not detected. Prediction will run on CPU, which is slower.")
+
+    # Load encoders
+    crop_encoder = joblib.load(CROP_ENCODER_PATH)
+    disease_encoder = joblib.load(DISEASE_ENCODER_PATH)
+
+    # Define transform (same as training)
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406],
+                            [0.229, 0.224, 0.225])
+    ])
+
+    # Custom Fully Connected Layer (must match training script)
+    class CustomFC(nn.Module):
+        def __init__(self, in_features, num_crops, num_diseases):
+            super(CustomFC, self).__init__()
+            self.crop = nn.Linear(in_features, num_crops)
+            self.disease = nn.Linear(in_features, num_diseases)
+
+        def forward(self, x):
+            return {
+                "crop": self.crop(x),
+                "disease": self.disease(x)
+            }
+
+    # Load model
+    model = models.resnet18(weights=None)  # Use weights=None since we load custom weights
+    num_crops = len(crop_encoder.classes_)
+    num_diseases = len(disease_encoder.classes_)
+    in_features = model.fc.in_features
+    model.fc = CustomFC(in_features, num_crops, num_diseases)  # Use CustomFC instead of ModuleDict
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    model.to(device)
+    model.eval()
+
+    # Image prediction
+    image = Image.open(uploaded_image).convert("RGB")
+    input_tensor = transform(image).unsqueeze(0).to(device, non_blocking=True)
+
+    with torch.no_grad():
+        outputs = model(input_tensor)
+        crop_output, disease_output = outputs["crop"], outputs["disease"]
+        pred_crop_idx = crop_output.argmax(1).item()
+        pred_disease_idx = disease_output.argmax(1).item()
+
+        predicted_crop = crop_encoder.inverse_transform([pred_crop_idx])[0]
+        predicted_disease = disease_encoder.inverse_transform([pred_disease_idx])[0]
+
+    # Adjust disease name if "none"
+    if predicted_disease == "none":
+        predicted_disease = "healthy"
+
+    # Store in session state (optional if used elsewhere)
+    st.session_state["predicted_crop"] = predicted_crop
+    st.session_state["predicted_disease"] = predicted_disease
+
+    # Display prediction
     st.markdown("### 🧠 ML Prediction")
     st.success(f"🟢 Crop: **{predicted_crop.title()}**")
     st.error(f"🔴 Disease: **{predicted_disease.title()}**")
-
-    if "predicted_crop" not in st.session_state or "predicted_disease" not in st.session_state:
-        st.caption("ℹ️ Using default values until ML model is integrated.")
+    
+    
 
     # ----- AI-Based Treatment Advisory -----
     st.markdown("### 💊 AI-Based Treatment Advisory")
 
     def fetch_treatment_advisory(crop, disease):
         prompt = f"""Provide concise, bullet-point treatment advice for {disease} in {crop} crops.
-        Include:
-        - Recommended pesticides/fungicides
-        - Application dosage
-        - Optimal timing
-        - Cultural control methods
-        - Resistance management tips"""
+    Include:
+    - Recommended pesticides/fungicides
+    - Application dosage
+    - Optimal timing
+    - Cultural control methods
+    - Resistance management tips"""
+
+        headers = {
+            "Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "model": "llama3-8b-8192",
+            "messages": [
+                {"role": "system", "content": "You are an expert agronomist."},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.7,
+            "max_tokens": 512,
+            "top_p": 1,
+            "stop": None
+        }
 
         try:
-            model = genai.GenerativeModel('gemini-1.5-pro')
-            response = model.generate_content(
-                prompt,
-                generation_config={
-                    "max_output_tokens": 500,
-                    "temperature": 0.5
-                }
-            )
-            return response.text
-        except Exception as e:
-            st.error(f"⚠️ Error: {str(e)}. Please try again later.")
+            response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()["choices"][0]["message"]["content"]
+        except requests.exceptions.RequestException as e:
+            st.error(f"⚠️ Groq API Error: {str(e)}")
             return None
+
 
 
     if st.button("🔍 Get AI Treatment Advisory"):
