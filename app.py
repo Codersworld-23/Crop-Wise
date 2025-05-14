@@ -17,6 +17,7 @@ import torch
 import torchvision.transforms as transforms
 from torchvision import models
 import joblib
+import torch.nn as nn
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
@@ -34,13 +35,6 @@ uploaded_image = st.file_uploader("📷 Upload an image of the diseased crop", t
 if uploaded_image:
     st.image(uploaded_image, caption="Uploaded Image", use_container_width=True)
     
-    import torch
-    import torchvision.transforms as transforms
-    from PIL import Image
-    import joblib
-    import os
-    from torchvision import models
-    import torch.nn as nn
 
     # Paths
     MODEL_PATH = "models/crop_disease_resnet18.pth"
