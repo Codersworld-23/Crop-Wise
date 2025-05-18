@@ -519,6 +519,24 @@ elif selected_tab == "Crop Market vs Geostatistics":
     from scipy import stats
     import statsmodels.api as sm
     import numpy as np
+    import time
+
+    # Retry wrapper function to handle slow or flaky responses
+    def robust_post_request(url, headers, payload, retries=3, timeout=10, delay=2):
+        for attempt in range(retries):
+            try:
+                response = requests.post(url, headers=headers, data=payload, timeout=timeout)
+                if response.status_code == 200:
+                    return response
+                else:
+                    st.warning(f"Attempt {attempt+1}: Received status {response.status_code}")
+            except requests.exceptions.Timeout:
+                st.warning(f"Attempt {attempt+1}: Timeout error. Retrying...")
+            except requests.exceptions.RequestException as e:
+                st.warning(f"Attempt {attempt+1}: Request failed: {e}")
+            time.sleep(delay)
+        return None
+
 
     # Base URL and AJAX endpoints
     base_url = "https://enam.gov.in/web/"
@@ -559,16 +577,20 @@ elif selected_tab == "Crop Market vs Geostatistics":
             "fromDate": from_date,
             "toDate": to_date
         }
-        try:
-            response = requests.post(commodity_url, headers=headers, data=payload)
-            if response.status_code == 200:
+        response = robust_post_request(commodity_url, headers, payload)
+        if response:
+            try:
                 data = response.json()
                 if data.get("status") == 200:
                     return [item["commodity"] for item in data.get("data", [])]
-            return []
-        except Exception as e:
-            st.error(f"Error fetching commodities: {e}")
-            return []
+                else:
+                    st.warning("Commodity data fetch failed. Status not 200.")
+            except Exception as e:
+                st.error(f"Failed to parse commodity JSON: {e}")
+        else:
+            st.error("Failed to fetch commodity data after retries.")
+        return []
+
 
     # Fetch trade data
     def fetch_trade_data(state_name, apmc_name, commodity_name, from_date, to_date):
@@ -580,16 +602,20 @@ elif selected_tab == "Crop Market vs Geostatistics":
             "fromDate": from_date,
             "toDate": to_date
         }
-        try:
-            response = requests.post(trade_data_url, headers=headers, data=payload)
-            if response.status_code == 200:
+        response = robust_post_request(trade_data_url, headers, payload)
+        if response:
+            try:
                 data = response.json()
                 if data.get("status") == 200:
                     return pd.DataFrame(data.get("data", []))
-            return pd.DataFrame()
-        except Exception as e:
-            st.error(f"Error fetching trade data: {e}")
-            return pd.DataFrame()
+                else:
+                    st.warning("Trade data fetch failed. Status not 200.")
+            except Exception as e:
+                st.error(f"Failed to parse trade JSON: {e}")
+        else:
+            st.error("Failed to fetch trade data after retries.")
+        return pd.DataFrame()
+
 
     # Format number with commas
     def number_format(num):
